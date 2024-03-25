@@ -439,8 +439,8 @@ async def write_tickers():
 async def battle_trends():
     # load the existing trending battle data from s3
     trendingbattles=aws.load_s3("stats/trendingbattles.json")
-    print(trendingbattles)
-    return True
+    # print(trendingbattles)
+    # return True
     battlestats={}
     pg.cur1_execute("select epoch, count(block_no) as battles, count(block_no) filter (where forker=true) as forkerblocks,count(block_no) filter (where slot_battle=true and forker=false) as slotbattleblocks,count(block_no) filter (where slot_battle=false and forker=false) as heightbattleblocks from (select epoch,block_no, bool_or(competitive) as competitive, bool_or(forker) as forker, case when  min(block_slot_no)=max(block_slot_no) then true else false end as slot_battle, array_agg(DISTINCT pool_id) as pool_ids,array_agg(DISTINCT pool_ticker) as pool_tickers from competitive_blocks where epoch>350 and (competitive=true or forker=true) group by epoch,block_no)  as a group by a.epoch order by epoch desc limit 10")
     rows=pg.cur1_fetchall()
@@ -466,7 +466,7 @@ async def battle_trends():
 
 async def main():
     pool_ranking=POOL_RANKING_PERIOD#POOL_RANKING_PERIOD #every 1 hour
-    metadata=METADATA_PERIOD#METADATA_PERIOD#METADATA_PERIOD #every 10 minutes
+    metadata=0#METADATA_PERIOD#METADATA_PERIOD#METADATA_PERIOD #every 10 minutes
     poolrelays=POOL_RELAYS#POOL_RELAYS#POOL_RELAYS#POOL_RELAYS#POOL_RELAYS
     writetickers=WRITE_TICKERS
     battletrends=BATTLE_TRENDS#BATTLE_TRENDS
@@ -493,6 +493,7 @@ async def main():
                 time.sleep(60)
                 break
             else:
+                print("battletrends succeeded")
                 battletrends=BATTLE_TRENDS
         
         writetickers=writetickers-1

@@ -17,6 +17,8 @@ We use a postgres database on the DATABASE SERVER to maintain high speed data ac
 - periodicProcesses.py - process pool ranking, metadata checks, pool relays, ticker summaries, battle trends and pledge checking on a routine basis.
 - processTips.py - processes all dynamo db data from tipdata loaded in through aws api.  executes one loop per second.
 - processOrphans.py - continuously scans all recent blocks and matches up heights/slots to flag orphans, battles, forkers.
+- processZapierPosts.py - continuously scan for zapier posts to push up
+- cnodeServerAPI.py - 
 
 ### Utility and Helper Files
 - pt_utils.py - misc utility pooltool and crypto functions

@@ -501,6 +501,11 @@ while True:
                     if len(heightbattles[height])>1:
                         print("height battle:",height)
                         print("pools involved: ")
+                        bdlist=[]
+                        for minipoolid in heightbattles[height]:
+                            for minihash in heightbattles[height][minipoolid]:
+                                bdlist.append("blockdata/"+str(math.floor(int(height)/1000))+"/C_"+str(minihash)+".json")
+                        heightbattles[height][poolid][hash]['block_data']=bdlist        
                         #print(heightbattles[height].keys())
                         if 'competitive' in heightbattles[height][poolid][hash] and heightbattles[height][poolid][hash]['competitive']==False:
                             heightbattles[height][poolid][hash]['newData']=True
@@ -512,6 +517,11 @@ while True:
                     if len(heightbattles[height][poolid])>1:
                         print("forker:",poolid)
                         #print(heightbattles[height][poolid])
+                        bdlist=[]
+                        for minipoolid in heightbattles[height]:
+                            for minihash in heightbattles[height][minipoolid]:
+                                bdlist.append("blockdata/"+str(math.floor(int(height)/1000))+"/C_"+str(minihash)+".json")
+                        heightbattles[height][poolid][hash]['block_data']=bdlist 
                         if 'forker' in heightbattles[height][poolid][hash] and heightbattles[height][poolid][hash]['forker']==False:
                             heightbattles[height][poolid][hash]['newData']=True
                         heightbattles[height][poolid][hash]['forker']=True
