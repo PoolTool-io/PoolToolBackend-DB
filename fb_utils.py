@@ -39,7 +39,6 @@ class fb_utils:
             
             apns = messaging.APNSConfig(payload = payload)
         )
-        print(msg)
 
         # send
         res = messaging.send(msg)

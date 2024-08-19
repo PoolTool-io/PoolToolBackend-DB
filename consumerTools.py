@@ -67,68 +67,17 @@ def consumeTransaction(args,current_epoch):
     pg.cur1_execute("update blocks set ex_units_mem=COALESCE(blocks.ex_units_mem,0)+%s, ex_units_steps=COALESCE(blocks.ex_units_steps,0)+%s, fees=blocks.fees+%s where block=%s",[ex_units_mem,ex_units_steps,args['transaction']['fee'],args['context']['block_number']])
     pg.cur1_execute("insert into epoch_params (epoch_feess,epoch) values(%s,%s) ON CONFLICT ON CONSTRAINT epparams_idx DO UPDATE set epoch_feess=epoch_params.epoch_feess+%s",[args['transaction']['fee'],current_epoch,args['transaction']['fee']])
     pg.conn_commit()
-    if 'outputs' in args['transaction'] and args['transaction']['outputs'] is not None:
-        for output in args['transaction']['outputs']:
-            if 'address' in output and 'amount' in output:
-                if output['address'] in watchAddresses:
-                    print("verification payment")
-                    print(args)
-                    # get all of the input utxos to insert into the auth table.
-                    if 'inputs' in args['transaction'] and args['transaction']['inputs'] is not None:
-                        input_addresses=[]
-                        input_stake_keys=[]
-                        for inputtx in args['transaction']['inputs']:
-                            if 'tx_id' in inputtx and 'index' in inputtx:
-                                print("searching for tx: ",inputtx['tx_id'],inputtx['index'])
-                                pg.cur1_execute("select address from live_utxo where tx_hash=%s and out_indx=%s union select address from tx_output where tx_hash=%s and output_idx=%s",[inputtx['tx_id'],inputtx['index'],inputtx['tx_id'],inputtx['index']])
-                                row=pg.cur1_fetchone()
-                                if row:
-                                    if row['address'] not in input_addresses:
-                                        input_addresses.append(row['address'])
-                                        if row['address'][0:4]=="addr":
-                                            addr=convertBech32(row['address'])
-                                        else:
-                                            addr = row['address']
-                                        if len(addr)==114:
-                                            stadd = addr[58:114]
-                                        else:
-                                            stadd = None
-                                        if stadd is not None:
-                                            input_stake_keys.append(stadd)
-                        print("found tx, inserting into auth_watch")
-                        pg.cur1_execute("insert into auth_watch(to_address,amount,from_address_array,from_stakekey_array,timestamp) values(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
-                        [output['address'],output['amount'],input_addresses,input_stake_keys,args['context']['timestamp']])
-                        pg.conn_commit()
+
     if 'withdrawals' in args['transaction'] and args['transaction']['withdrawals'] is not None:
-        
-        for withdrawal in args['transaction']['withdrawals']:
-            if len(withdrawal['reward_account'])==58:
-                #strip off the e1 if its there
-                withdrawal['reward_account']=withdrawal['reward_account'][2:]
-            pg.cur1_execute("insert into withdrawals(block,slot,timestamp,stake_key,amount) values(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",[args['context']['block_number'],args['context']['slot'],args['context']['timestamp'],withdrawal['reward_account'],withdrawal['coin']])
-            pg.conn_commit()
+        pass
+ 
 
 def consumeTxInput(args,current_epoch):
-    
-    pg.cur1_execute("insert into tx_input (block, timestamp, tx_id, tx_index,slot) values(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",[
-    args['context']['block_number'],args['context']['timestamp'],args['tx_input']['tx_id'],args['tx_input']['index'],args['context']['slot']])
-    pg.conn_commit()
+    pass
+
 
 def consumeTxOutput(args,current_epoch):
-    # print(args)
-    if 'tx_output' in args and 'assets' in args['tx_output']:
-        adahandles=[]
-        for asset in args['tx_output']['assets']:
-            if 'policy' in asset:
-                if asset['policy']=='f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a':
-                    adahandles.append(asset['asset_ascii'])
-        if len(adahandles):
-            print(args['tx_output']['address'])
-            print(adahandles)
-    pg.cur1_execute("insert into tx_output (block, timestamp, address, output_idx, amount, datum_hash, tx_hash,slot,adahandles) values (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",[
-    args['context']['block_number'],args['context']['timestamp'],args['tx_output']['address'],args['context']['output_idx'],args['tx_output']['amount'],
-    args['tx_output']['datum_hash'],args['context']['tx_hash'],args['context']['slot'],adahandles
-    ])
+ 
     pg.cur1_execute("update blocks set output=blocks.output+%s where block=%s",[int(args['tx_output']['amount']),int(args['context']['block_number'])])
     pg.cur1_execute("insert into epoch_params (epoch_output,epoch) values(%s,%s) ON CONFLICT ON CONSTRAINT epparams_idx DO UPDATE set epoch_output=epoch_params.epoch_output+%s",[int(args['tx_output']['amount']),current_epoch,int(args['tx_output']['amount'])])
     pg.conn_commit()
@@ -138,37 +87,57 @@ def consumeBlockEnd(args,current_epoch,replay=False):
     allowChanges=True
     if allowChanges:
         print("updating last details to fb")
-        pg.cur1_execute("select blocks.ex_units_mem, blocks.ex_units_steps,blocks.output, blocks.fees, blocks.body_size, blocks.epoch_slot, blocks.slot, blocks.timestamp, blocks.transactions, blocks.cbor_size, blocks.block,blocks.epoch,blocks.hash,blocks.pool_id, pools.pool_name, pools.ticker from blocks left join pools on pools.pool_id=blocks.pool_id where blocks.block=%s",[int(args['context']['block_number'])])
+        pg.cur1_execute("""select 
+        blocks.ex_units_mem, 
+        blocks.ex_units_steps,
+        blocks.output, 
+        blocks.fees, 
+        blocks.body_size, 
+        blocks.epoch_slot, 
+        blocks.slot, 
+        blocks.timestamp, 
+        blocks.transactions, 
+        blocks.cbor_size, 
+        blocks.block,
+        blocks.epoch,
+        blocks.hash,
+        blocks.pool_id, 
+        pools.pool_name, 
+        pools.ticker 
+        from blocks left join pools on pools.pool_id=blocks.pool_id where blocks.block=%s""",[int(args['context']['block_number'])])
         row=pg.cur1_fetchone()
         pg.conn_commit()
         if row and row is not None:
-            if 'hash' not in row or 'fee' not in row:
-                print(row)
             blockdata = {
                 "block":int(row['block']),
-                "epoch":int(row['epoch']) if row['epoch'] is not None else 0,
+                "epoch":int(row['epoch']) if 'epoch' in row and row['epoch'] is not None else 0,
                 "fees":int(row['fees']) if 'fees' in row and row['fees'] is not None else 0,
-                "hash":row['hash'],
-                "leaderPoolId":row['pool_id'],
-                "leaderPoolName":row['pool_name'].strip() if row['pool_name'] is not None else '',
-                "leaderPoolTicker":row['ticker'].strip() if row['ticker'] is not None else '',
-                "output":int(row['output']) if row['output'] is not None else 0,
-                "size":int(row['body_size']) if row['body_size'] is not None else 0,
-                "cslot":int(row['slot']) if row['slot'] is not None else 0,
-                "slot":int(row['epoch_slot']) if row['epoch_slot'] is not None else 0,
-                "time":int(row['timestamp'])*1000 if row['timestamp'] is not None else 0,
-                "transactions":int(row['transactions']) if row['transactions'] is not None else 0,
-                "cbor_size_bytes":int(row['cbor_size']) if row['cbor_size'] is not None else 0,
-                "ex_units_mem":int(row['ex_units_mem']) if row['ex_units_mem'] is not None else 0,
-                "ex_units_steps":int(row['ex_units_steps']) if row['ex_units_steps'] is not None else 0
+                "hash":row['hash'] if 'hash' in row and row['hash'] is not None else '',
+                "leaderPoolId":row['pool_id'] if 'pool_id' in row and row['pool_id'] is not None else '',
+                "leaderPoolName":row['pool_name'].strip() if 'pool_name' in row and row['pool_name'] is not None else '',
+                "leaderPoolTicker":row['ticker'].strip() if 'ticker' in row and row['ticker'] is not None else '',
+                "output":int(row['output']) if 'output' in row and row['output'] is not None else 0,
+                "size":int(row['body_size']) if 'body_size' in row and row['body_size'] is not None else 0,
+                "cslot":int(row['slot']) if 'slot' in row and row['slot'] is not None else 0,
+                "slot":int(row['epoch_slot']) if 'epoch_slot' in row and row['epoch_slot'] is not None else 0,
+                "time":int(row['timestamp'])*1000 if 'timestamp' in row and row['timestamp'] is not None else 0,
+                "transactions":int(row['transactions']) if 'transactions' in row and row['transactions'] is not None else 0,
+                "cbor_size_bytes":int(row['cbor_size']) if 'cbor_size' in row and row['cbor_size'] is not None else 0,
+                "ex_units_mem":int(row['ex_units_mem']) if 'ex_units_mem' in row and row['ex_units_mem'] is not None else 0,
+                "ex_units_steps":int(row['ex_units_steps']) if 'ex_units_steps' in row and row['ex_units_steps'] is not None else 0
             }
             fb.updateFb(baseNetwork+"/recent_block",blockdata)
             fb.setFb(baseNetwork+"/blocks/"+str(row['epoch'])+"/"+str(row['block']),blockdata)
-            fb.setFb(baseNetwork+"/pool_blocks/"+str(row['pool_id'])+"/"+str(row['epoch'])+"/"+str(row['block']),blockdata)
-            fb.setFb(baseNetwork+"/pool_blocks_ne/"+str(row['pool_id'])+"/"+str(row['block']),blockdata) #TODO:  why is this necessary?
+            print("blocks done")
+            if 'pool_id' in row and row['pool_id'] != '':
+                fb.setFb(baseNetwork+"/pool_blocks/"+str(row['pool_id'])+"/"+str(row['epoch'])+"/"+str(row['block']),blockdata)
+                print("pool blocks done")
+                fb.setFb(baseNetwork+"/pool_blocks_ne/"+str(row['pool_id'])+"/"+str(row['block']),blockdata) #TODO:  why is this necessary?
+                print("pool blocks ne done")
             aws.dump_s3(blockdata,baseNetwork+'/blocks/'+str(row['epoch'])+"/"+str(row['block'])+".json")
+            print("aws s3 done")
         try:
-            pg.cur1_execute("select blocks.epoch, blocks.epoch_slot, blocks.block, blocks.slot, blocks.timestamp, blocks.timestamp-prevblock.timestamp as timedelta from blocks left join blocks prevblock on prevblock.block=blocks.block-1 where blocks.epoch>299 and blocks.lagprev is null order by block asc ")
+            pg.cur1_execute("select blocks.epoch, blocks.epoch_slot, blocks.block, blocks.slot, blocks.timestamp, blocks.timestamp-prevblock.timestamp as timedelta from blocks left join blocks prevblock on prevblock.block=blocks.block-1 where blocks.epoch>468 and blocks.lagprev is null order by block asc ")
             rows=pg.cur1_fetchall()
             pg.conn_commit()
             for row in rows:

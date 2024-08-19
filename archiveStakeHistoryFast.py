@@ -6,12 +6,12 @@ from pg_utils import *
 from aws_utils import *
 from fb_utils import *
 
-pg = pg_utils("postProcessRewards")
+pg = pg_utils("archiveStakeHistoryFast")
 fb = fb_utils()
 aws = aws_utils()
 
 stop_flag = False  # Global flag to signal all threads to stop
-sem = Semaphore(100)  # Limit to 1000 concurrent tasks
+sem = Semaphore(10)  # Limit to 1000 concurrent tasks
 
 def process_row(row, target_epoch, counter, lock):
     global stop_flag, sem
@@ -83,6 +83,18 @@ def archive_epoch(target_epoch):
     pg.conn_commit()
 
 try:
+
+    # wait until at least slot 40000 to process.  thats one hour after the epoch switch
+    pg.cur1_execute("select epoch_slot,epoch from blocks order by block desc limit 1")
+    row=pg.cur1_fetchone()
+    epoch_slot=row['epoch_slot']
+    while epoch_slot<20000:
+        print("waiting for slot 40000, currently at slot: ", epoch_slot)
+        time.sleep(60)
+        pg.cur1_execute("select epoch_slot,epoch from blocks order by block desc limit 1")
+        row=pg.cur1_fetchone()
+        epoch_slot=row['epoch_slot']
+
     pg.cur1_execute("select max(epoch) as epoch from epoch_params")
     row=pg.cur1_fetchone()
     if row is not None:

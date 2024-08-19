@@ -22,6 +22,16 @@ class aws_utils():
         return json.load(self.s3.Object(key=f).get()["Body"])
     def dump_s3(self,obj,f):
         self.s3.Object(key=f).put(Body=json.dumps(obj),ACL='public-read')
+
+    def get_directory_listing_s3(self,dir):
+        return [obj.key for obj in self.s3.objects.filter(Prefix=dir)]
+    
+    def load_s3_object(self, Key):
+        # Retrieve the object from S3
+        return self.s3.Object(key=Key).get()["Body"].read()
+
+    def delete_s3_object(self,Key):
+        self.s3.Object(key=Key).delete()
     
     def awsbroadcast(self,message):
         queue_url = 'https://sqs.us-west-2.amazonaws.com/637019325511/pooltoolevents.fifo'

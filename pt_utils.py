@@ -125,8 +125,6 @@ def convertFromBech32(hex,prefix):
 
 def trigger_zapier_hook(url,package):
     try:
-        print(url)
-        print(package)
         x = requests.post(url,json=package,timeout=2.50)
         
         return x.json()

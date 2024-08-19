@@ -1,0 +1,19 @@
+[Unit]
+Description=processTips
+After=multi-user.target
+[Service]
+User=ubuntu
+Type=simple
+Restart=always
+RestartSec=30s
+
+WorkingDirectory=/home/ubuntu/pt3_production
+ExecStart=/usr/bin/python3 /home/ubuntu/pt3_production/processTips.py
+StandardOutput=syslog
+StandardError=syslog
+KillSignal=SIGINT
+KillMode=mixed
+
+
+[Install]
+WantedBy=multi-user.target

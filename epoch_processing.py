@@ -1,14 +1,7 @@
 import os
 from config import *
 print("doing epoch processing")
-# print("update Epoch Prices")
-# if os.system('python3 -u updateEpochPrices.py') != 0:
-#     print("failed updateEpochPrices.py")
-#     exit()
-# print("processing waitstake")
-# if os.system('python3 -u waitstakeCbor.py') != 0:
-#     print("failed waitstakeCbor.py")
-#     exit()
+
 print("Gating epoch processing until epoch parameters and waitstake are written")
 if os.system('python3 -u gateOnEpochParams.py') != 0:
     print("failed gateOnEpochParams.py")
@@ -50,8 +43,10 @@ if os.system('python3 -u assignedPerformanceAnalysis.py') != 0:
     print("failed assignedPerformanceAnalysis.py")
     exit()
 
-#note, this will archive all reward history to s3 to save database storage.  it takes about 8 hoursrun for each epoch
-print("archive stake history")
-if os.system('python3 -u archiveStakeHistoryFast.py') != 0:
-    print("failed archiveStakeHistoryFast.py")
-    exit()
+#note, this will archive all reward history to s3 to save database storage.  it takes about 8 hoursrun for each epoch  we wait until slot 40,000 to make sure 
+#the telegram bot is done
+#disablling this for now until we build at least 10 epochs worth of history (not forecasted epochs) so we can run loyalty again.
+# print("archive stake history")
+# if os.system('python3 -u archiveStakeHistoryFast.py') != 0:
+#     print("failed archiveStakeHistoryFast.py")
+#     exit()

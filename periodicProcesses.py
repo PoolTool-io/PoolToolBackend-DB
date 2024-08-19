@@ -18,7 +18,7 @@ from pt_utils import *
 
 
 
-
+MAX_IP_API_REQUESTS_PER_DAY=9
 POOL_RANKING_PERIOD=60*58*1 # 1 hours (new data only updated every 5 hours which gives a max update period of around 6 hours)
 METADATA_PERIOD=60*62 # 1 hour
 POOL_RELAYS=60*63*1 # about 1 hours
@@ -29,6 +29,13 @@ PLEDGE_CHECK=60*66*24 # every day
 fb=fb_utils()
 aws=aws_utils()
 pg=pg_utils("PeriodicProcesses")
+
+
+api_requests_today=0
+skipped_api_requests_today=0
+today=time.strftime("%Y-%m-%d")
+
+
 
 
 def send_pledge_violation_notification(pool_id,poolTicker,poolName,pledge,actualpledge, gsm_token):
@@ -71,6 +78,11 @@ async def check_pledge_violations():
     return True
 
 async def update_pool_relays():
+    global today,api_requests_today,skipped_api_requests_today
+    if today!=time.strftime("%Y-%m-%d"):
+        api_requests_today=0
+        skipped_api_requests_today=0
+        today=time.strftime("%Y-%m-%d")
     counter = 0
     remoteProtocolVersion={}
     #load in datacenter lookup info
@@ -131,20 +143,27 @@ async def update_pool_relays():
                     if item['port'] not in relayDetails[relay][item['ip']]:
                         relayDetails[relay][item['ip']][item['port']]={"type":item['type'],"online":res['status'],"protocolVersion":protocolVersion}
                     if item['ip'] not in datacenter_data:
-                        result = getIpHostProvider([item['ip']])
-                        if "failure" not in result:
-                            if 'datacenter' not in result[item['ip']]:
-                                print(result[item['ip']])
-                            if item['ip'] in result and 'datacenter' in result[item['ip']]:
-                                #this means its in a datacenter
-                                datacenter_data[item['ip']]={"is_datacenter":result[item['ip']]['is_datacenter'],"datacenter":result[item['ip']]['datacenter']}
-                                datacenter_data_pkg=result[item['ip']]
-                            else:
-                                datacenter_data[item['ip']]={"is_datacenter":False,"datacenter":''}
-                                datacenter_data_pkg=datacenter_data[item['ip']]
-                            pg.cur2_execute("insert into ip_datacenter_lookup (ip_address,json_data) values(%s,%s) ON CONFLICT DO NOTHING",[str(item['ip']),Json(datacenter_data_pkg)])
-                            # conn.commit()
-                            pg.conn_commit()
+                        if api_requests_today<MAX_IP_API_REQUESTS_PER_DAY:
+                            api_requests_today=api_requests_today+1
+                            print("api requests today: "+str(api_requests_today))
+                            result = getIpHostProvider([item['ip']])
+                            print(result)
+                            if "failure" not in result:
+                                if  item['ip'] in result and 'datacenter' not in result[item['ip']]:
+                                    print(result[item['ip']])
+                                if item['ip'] in result and 'datacenter' in result[item['ip']]:
+                                    #this means its in a datacenter
+                                    datacenter_data[item['ip']]={"is_datacenter":result[item['ip']]['is_datacenter'],"datacenter":result[item['ip']]['datacenter']}
+                                    datacenter_data_pkg=result[item['ip']]
+                                else:
+                                    datacenter_data[item['ip']]={"is_datacenter":False,"datacenter":''}
+                                    datacenter_data_pkg=datacenter_data[item['ip']]
+                                pg.cur2_execute("insert into ip_datacenter_lookup (ip_address,json_data) values(%s,%s) ON CONFLICT DO NOTHING",[str(item['ip']),Json(datacenter_data_pkg)])
+                                # conn.commit()
+                                pg.conn_commit()
+                        else:
+                            skipped_api_requests_today=skipped_api_requests_today+1
+                            print("max api requests today, skipping until tomorrow.  total skipped: " + str(skipped_api_requests_today))
                     if item['ip'] in datacenter_data:
                         relayDetails[relay][item['ip']][item['port']]['is_datacenter']=datacenter_data[item['ip']]['is_datacenter']
                         relayDetails[relay][item['ip']][item['port']]['datacenter']=datacenter_data[item['ip']]['datacenter']
@@ -304,12 +323,13 @@ def parse_ip_port(netloc):
 
 def isOnlineIpRelayCardanoCli(ip,port):
     te=""
-    te = runcli2(f"/home/ubuntu/newnode/cardano-cli ping -h {ip} -p {port} -Q -j -q", timeout=10, timeout_return="")
+    te = runcli2(f"/home/ubuntu/newnode2/bin/cardano-cli ping -h {ip} -p {port} -Q -j -q", timeout=10, timeout_return="")
     #te = runcli(f"/home/ubuntu/newnode/cardano-cli ping -h {ip} -p {port} -Q -j -q",timeout=10,timeout_return="" )
     print(te)
 
     if te!="" and te!=None:
         versions = re.findall(r'NodeToNodeVersionV(\d+)', te)
+        #print(versions)
         if not versions:
             return {"status":False,"errorMessage":te}
         else:
@@ -466,8 +486,8 @@ async def battle_trends():
 
 async def main():
     pool_ranking=POOL_RANKING_PERIOD#POOL_RANKING_PERIOD #every 1 hour
-    metadata=0#METADATA_PERIOD#METADATA_PERIOD#METADATA_PERIOD #every 10 minutes
-    poolrelays=POOL_RELAYS#POOL_RELAYS#POOL_RELAYS#POOL_RELAYS#POOL_RELAYS
+    metadata=METADATA_PERIOD#METADATA_PERIOD#METADATA_PERIOD #every 10 minutes
+    poolrelays=0#POOL_RELAYS#POOL_RELAYS#POOL_RELAYS#POOL_RELAYS#POOL_RELAYS
     writetickers=WRITE_TICKERS
     battletrends=BATTLE_TRENDS#BATTLE_TRENDS
     pledge_check=PLEDGE_CHECK
@@ -538,4 +558,8 @@ async def main():
         
         
         time.sleep(1)
+
+# isOnlineIpRelayCardanoCli("relay1.ada.vegas",4001)
+
+# exit()        
 asyncio.run(main())
