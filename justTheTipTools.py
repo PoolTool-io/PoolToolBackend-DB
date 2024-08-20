@@ -18,11 +18,16 @@ watchAddresses=['addr1qykeqj78jj98ulnkmjt0dxh5ya4pcw27qy7l4z5dkzyr5grszxlk5cj4w7
 
 
 def consumeTransaction(args,current_epoch):
+    
+    
     if 'outputs' in args['transaction'] and args['transaction']['outputs'] is not None:
         for output in args['transaction']['outputs']:
             if 'address' in output and 'amount' in output:
+                
+                
                 if output['address'] in watchAddresses:
-
+                    print("###########################################")
+                    print(output['address'],output['amount'])
                     input_addresses=[]
                     input_stake_keys=[]
                     print("verification payment")

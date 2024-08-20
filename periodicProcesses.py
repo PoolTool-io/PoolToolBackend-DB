@@ -323,9 +323,11 @@ def parse_ip_port(netloc):
 
 def isOnlineIpRelayCardanoCli(ip,port):
     te=""
-    te = runcli2(f"/home/ubuntu/newnode2/bin/cardano-cli ping -h {ip} -p {port} -Q -j -q", timeout=10, timeout_return="")
-    #te = runcli(f"/home/ubuntu/newnode/cardano-cli ping -h {ip} -p {port} -Q -j -q",timeout=10,timeout_return="" )
+    te = runcli2(f"/home/ubuntu/.cabal/bin/cardano-cli ping -h {ip} -p {port} -Q -j -q", timeout=10, timeout_return="")
     print(te)
+    print(f"//home/ubuntu/.cabal/bin/cardano-cli ping -h {ip} -p {port} -Q -j -q")
+   
+    
 
     if te!="" and te!=None:
         versions = re.findall(r'NodeToNodeVersionV(\d+)', te)

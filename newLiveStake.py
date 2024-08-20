@@ -46,7 +46,7 @@ while True:
         liveStakeData=pickle.loads(liveStakeData)
 
         # save the picle file to disk
-        with open('liveStakeData.pkl','wb') as f:
+        with open('/tmp/liveStakeData.pkl','wb') as f:
             pickle.dump(liveStakeData,f)
         
         # delete all the files on the server because the old ones we will never process as well.
@@ -54,7 +54,7 @@ while True:
             aws.delete_s3_object(file)        
 
     # open the pickle file and read it back in
-    with open('liveStakeData.pkl','rb') as f:
+    with open('/tmp/liveStakeData.pkl','rb') as f:
         liveStakeData=pickle.load(f)
         #{"pool_data":pool_data,"treasury":extracted_data['treasury'],"reserves":extracted_data['reserves']}
 

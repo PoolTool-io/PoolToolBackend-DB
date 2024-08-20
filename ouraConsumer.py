@@ -20,6 +20,7 @@ row=pg.cur1_fetchone()
 pg.conn_commit()
 if row and row is not None:
   current_epoch=int(row['epoch'])
+  print(current_epoch)
 else:
   exit("failed to get current epoch")
 app = Flask(__name__)

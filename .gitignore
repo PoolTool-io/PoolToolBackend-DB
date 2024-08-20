@@ -1,0 +1,17 @@
+/junk
+/logs
+/deregs
+/cbormoves
+/__pycache__
+firebase-account.json
+config.py
+simpleNodeRest/node_modules
+simpleNodeRest/package-lock.json
+nohup.out
+adapools.json
+jcli
+test.py
+.vscode/
+firebase-marlowe-account.json
+monster/*
+openSource/*

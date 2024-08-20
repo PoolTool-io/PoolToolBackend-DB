@@ -62,13 +62,17 @@ class fb_utils:
     def writeFb(self,path,value):
         self.writebatch.append({"path":path,"value":value})
 
-    async def get_batch_tasks(self,batch,event_loop):
-        coroutines=[]
+    async def get_batch_tasks(self, batch, event_loop):
+        coroutines = []
         for item in batch:
-            coroutines.append(self.write_fb_queue(self.event_loop,item['path'],item['value'])) 
-        completed, pending = await asyncio.wait(coroutines)
+            coroutines.append(self.write_fb_queue(self.event_loop, item['path'], item['value']))
+        
+        # Create tasks from coroutines and pass them to asyncio.wait
+        tasks = [asyncio.create_task(coro) for coro in coroutines]
+        completed, pending = await asyncio.wait(tasks)
+        return completed, pending
 
-    async def write_fb_queue(self,event_loop,path,value):
+    async def write_fb_queue(self, event_loop, path, value):
         await event_loop.run_in_executor(self.executor, self.updateFb, path, value)
         return True
 
