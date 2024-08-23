@@ -89,7 +89,19 @@ class pg_utils:
     @retry
     def cur1_fetchall(self): # pass here required params to get data from DB
         return self.cur1.fetchall()
-    
+
+    @retry
+    def cur1_fetchmany(self, size=10000): # Fetch a batch of rows
+        return self.cur1.fetchmany(size)
+    @retry
+    def cur1_copy_expert(self, sql, output_file): # Use the COPY command
+        with open(output_file, 'w') as f:
+            self.cur1.copy_expert(sql, f)
+    @retry
+    def cur1_copy_expert_with_headers(self, sql, output_file, headers):
+        with open(output_file, 'w') as f:
+            f.write(headers)  # Write the custom headers to the CSV file
+            self.cur1.copy_expert(sql, f)
     @retry
     def cur2_execute(self,sql,params=None): # pass here required params to get data from DB
         return self.cur2.execute(sql,params)

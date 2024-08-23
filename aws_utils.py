@@ -22,6 +22,11 @@ class aws_utils():
         return json.load(self.s3.Object(key=f).get()["Body"])
     def dump_s3(self,obj,f):
         self.s3.Object(key=f).put(Body=json.dumps(obj),ACL='public-read')
+    def s3_upload_file(self, Key, file_path, ACL='public-read'):
+        # Upload the file directly to S3
+        self.s3.upload_file(Filename=file_path, Key=Key, ExtraArgs={'ACL': ACL, 'ContentType': 'text/csv'})
+
+        print(f"File {file_path} uploaded to S3 as {Key}")
 
     def get_directory_listing_s3(self,dir):
         return [obj.key for obj in self.s3.objects.filter(Prefix=dir)]
