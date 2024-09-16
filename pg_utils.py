@@ -62,6 +62,11 @@ class pg_utils:
         if self.cur3 == None or self.cur3.closed:
             self.cur3 = self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         return True
+    @retry
+    def create_server_side_cursor(self, name, itersize=10000):
+        cursor = self.conn.cursor(name=name, cursor_factory=psycopg2.extras.DictCursor)
+        cursor.itersize = itersize
+        return cursor
 
     def cur1_close(self):
         self.cur1.close()
@@ -117,6 +122,12 @@ class pg_utils:
     @retry
     def cur3_fetchone(self): # pass here required params to get data from DB
         return self.cur3.fetchone()
+
+    @retry
+    def server_side_execute(self, cursor_name, sql, params=None, itersize=10000):
+        cursor = self.create_server_side_cursor(cursor_name, itersize)
+        cursor.execute(sql, params)
+        return cursor  # Return the cursor for iteration
 
     @retry
     def conn_commit(self): 

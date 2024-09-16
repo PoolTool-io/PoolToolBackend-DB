@@ -9,19 +9,60 @@ app.use(cors())
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.set('port', process.env.PORT || 3002);
-app.listen(3002)
+
 
 const { Client } = require('pg');
-
-const db = new Client({
+// Database configuration
+const dbConfig = {
     host: 'localhost',
     port: 5432,
     user: 'postgres',
     password: 'postgres',
     database: 'pooltool'
-  })
+  }
 
-db.connect().then(() => console.log('connected')).catch(err => console.error('connection error', err.stack))
+let db;
+
+// Function to connect to the database
+async function connectToDB() {
+  try {
+    db = new Client(dbConfig);
+    await db.connect();
+    console.log('Connected to the database');
+  } catch (err) {
+    console.error('Initial connection error:', err.message);
+    process.exit(1); // Exit if unable to connect initially
+  }
+
+  // Listen for any errors and handle reconnection
+  db.on('error', async (err) => {
+    console.error('Database error:', err.message);
+    await reconnectDB(); // Try to reconnect on error
+  });
+}
+
+// Function to attempt reconnection
+async function reconnectDB() {
+  let retries = 5;
+  while (retries) {
+    try {
+      console.log('Attempting to reconnect...');
+      db = new Client(dbConfig); // Reinitialize client
+      await db.connect();
+      console.log('Reconnected to the database');
+      return;
+    } catch (err) {
+      retries -= 1;
+      console.error(`Reconnection failed. Retries left: ${retries}`);
+      if (retries === 0) {
+        console.error('Max reconnection attempts reached. Exiting...');
+        process.exit(1);
+      }
+      await new Promise(res => setTimeout(res, 5000)); // Wait 5 seconds before retrying
+    }
+  }
+}
+
 
 const firebase = require('firebase-admin');
 const serviceAccount = require('../firebase-account.json');
@@ -36,19 +77,15 @@ var pool_epoch_blocks = {}
 var connections = {}
 
 console.log("starting: ")
+// Query function
 async function queryDB(query) {
-  return await new Promise((resolve, reject) => {
-    db.query(query, (err, res) => {
-      if (err) {
-        console.log(err);
-        reject(err);
-        return;
-      }
-      // db.end();
-      resolve(res);
-      return res;
-    });
-  })
+  try {
+    const res = await db.query(query); // Perform the query
+    return res;
+  } catch (err) {
+    console.error('Query error:', err.message, err.stack);
+    throw err;
+  }
 }
 
 function returnsuccess(message) {
@@ -121,7 +158,7 @@ app.post('/sendslots', async function(req, res) {
   }
   console.log(request.poolId)
   //(typeof request.poolId != "undefined" && request.poolId=='8dcdf33740ee8e9da6e36337d875fb9222f5c8a1a315fda36886c615') || 
-  if((typeof request.poolId != "undefined" && request.poolId=='000006d97fd0415d')) {
+  if((typeof request.poolId != "undefined" && request.poolId=='2375efb30fae44b')) {
     //timing looks good
   }else{
     var curslot = (parseInt(Date.now()/1000) - 1607723091)%432000
@@ -278,6 +315,10 @@ app.post('/sendslots', async function(req, res) {
           await queryDB(query);
           verifyfeedback = `Slots validated for epoch ${request.epoch - 1}.  Assigned Performance will be calculated around 1 hour  into the epoch.`
         }else{
+          console.log("js.length==assigned_slots",js.length==assigned_slots)
+          console.log("assigned_slots_hash==hash",assigned_slots_hash==hash)
+          console.log("assigned_slots_hash==dahash",assigned_slots_hash=='dahash')
+          console.log(js.length,assigned_slots,assigned_slots_hash,hash)
           console.log("400: bad slots");
           res.json({
             statusCode: 400,
@@ -307,31 +348,9 @@ app.post('/sendslots', async function(req, res) {
     }
 });
 
-// var aWss = expressWs.getWss('/ws/chat/:room_id');
+app.listen(3002,async () => {
+  await connectToDB(); // Ensure DB connection is established at server start
+  console.log(`Server is running on port 3002`);
+});
 
-// app.ws('/ws/chat/:room_id', function(ws, req) {
-//     var room_id = req.params.room_id;
-//     let id = uuidv4();
-//     if (!connections[room_id]) {
-//         connections[room_id] = {}
-//     }
-//     connections[room_id][id] = ws;
-//     ws.on('message', function(msg) {
-//         console.log(Object.keys(connections[room_id]))
-//         for (let key in connections[room_id]) {
-//         if (msg == "PING") {
-//             console.log("PONG");
-//             // connections[room_id][key].send(JSON.stringify(newMsg));
-//         } else {
-//             let newMsg = JSON.parse(msg);
-//             newMsg['type'] = newMsg.message_type
-//             connections[room_id][key].send(JSON.stringify(newMsg));
-//             saveMessage(newMsg);
-//         }
-//         }
-//     });
 
-//     ws.on('close', function clear() {
-//         delete connections[room_id][id]
-//     });
-// });

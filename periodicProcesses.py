@@ -86,203 +86,208 @@ async def update_pool_relays():
     counter = 0
     remoteProtocolVersion={}
     #load in datacenter lookup info
-    pg.cur1_execute("select * from ip_datacenter_lookup")
-    row=pg.cur1_fetchone()
-    datacenter_data={}
-    while row:
-        datacenter_data[row['ip_address']]=row['json_data']
+    try:
+        pg.cur1_execute("select * from ip_datacenter_lookup")
         row=pg.cur1_fetchone()
+        datacenter_data={}
+        while row:
+            datacenter_data[row['ip_address']]=row['json_data']
+            row=pg.cur1_fetchone()
 
-    pg.cur1_execute("select pool_id, online_relays, offline_relays, relays from pools where retired=false and genesis=false and ((offline_relays>0 and relays_failure_count<100 and relays_last_check+(3600*relays_failure_count)<extract(epoch from now())::int) or relays_last_check=0 or(offline_relays=0 and (relays_last_check+(3600*2))<extract(epoch from now())::int))")
-    row=pg.cur1_fetchone()
-    while row:
-        counter = counter + 1
-        #print("#" + str(counter) + " - Processing relays for non-retired pool: " + row['pool_id'])
-        onlineCount = 0
-        offlineCount = 0
-        visitedIps = []
-        relayDetails={}
-        if row['relays'] is not None:
-            for relay in row['relays']:
-                # split relay into ip and port
-                relay=relay.strip()
-                print("testing relay",relay)
-                
-                if relay not in relayDetails:
-                    relayDetails[relay]={}
-                iplist = parse_ip_port(relay)
-                for item in iplist:
-                    protocolVersion=0
-                    if item in visitedIps:
-                        continue
-                    if item['ip'] not in relayDetails[relay]:
-                        relayDetails[relay][item['ip']]={}
+        pg.cur1_execute("select pool_id, online_relays, offline_relays, relays from pools where retired=false and genesis=false and ((offline_relays>0 and relays_failure_count<100 and relays_last_check+(3600*relays_failure_count)<extract(epoch from now())::int) or relays_last_check=0 or(offline_relays=0 and (relays_last_check+(3600*2))<extract(epoch from now())::int))")
+        row=pg.cur1_fetchone()
+        while row:
+            counter = counter + 1
+            #print("#" + str(counter) + " - Processing relays for non-retired pool: " + row['pool_id'])
+            onlineCount = 0
+            offlineCount = 0
+            visitedIps = []
+            relayDetails={}
+            if row['relays'] is not None:
+                for relay in row['relays']:
+                    # split relay into ip and port
+                    relay=relay.strip()
+                    print("testing relay",relay)
                     
-                    if item['type']==4:
-                        res = isOnlineIpRelayCardanoCli(item['ip'], item['port'])
+                    if relay not in relayDetails:
+                        relayDetails[relay]={}
+                    iplist = parse_ip_port(relay)
+                    for item in iplist:
+                        protocolVersion=0
+                        if item in visitedIps:
+                            continue
+                        if item['ip'] not in relayDetails[relay]:
+                            relayDetails[relay][item['ip']]={}
                         
-                        if res['status']:
-                            onlineCount = onlineCount + 1
-                            protocolVersion=res['remoteProtocolVersion']
-                            print(res)
-                            #exit()
+                        if item['type']==4:
+                            res = isOnlineIpRelayCardanoCli(item['ip'], item['port'])
+                            
+                            if res['status']:
+                                onlineCount = onlineCount + 1
+                                protocolVersion=res['remoteProtocolVersion']
+                                print(res)
+                                #exit()
+                            else:
+                                offlineCount = offlineCount + 1
+                            visitedIps.append(item)
+                        if item['type']==6:
+                            res = isOnlineIpRelayCardanoCli(item['ip'], item['port'])
+                            
+                            if res['status']:
+                                onlineCount = onlineCount + 1
+                                protocolVersion=res['remoteProtocolVersion']
+                                print(res)
+                                #exit()
+                            else:
+                                offlineCount = offlineCount + 1
+                            visitedIps.append(item)
+                        if item['port'] not in relayDetails[relay][item['ip']]:
+                            relayDetails[relay][item['ip']][item['port']]={"type":item['type'],"online":res['status'],"protocolVersion":protocolVersion}
+                        if item['ip'] not in datacenter_data:
+                            if api_requests_today<MAX_IP_API_REQUESTS_PER_DAY:
+                                api_requests_today=api_requests_today+1
+                                print("api requests today: "+str(api_requests_today))
+                                result = getIpHostProvider([item['ip']])
+                                print(result)
+                                if "failure" not in result:
+                                    if  item['ip'] in result and 'datacenter' not in result[item['ip']]:
+                                        print(result[item['ip']])
+                                    if item['ip'] in result and 'datacenter' in result[item['ip']]:
+                                        #this means its in a datacenter
+                                        datacenter_data[item['ip']]={"is_datacenter":result[item['ip']]['is_datacenter'],"datacenter":result[item['ip']]['datacenter']}
+                                        datacenter_data_pkg=result[item['ip']]
+                                    else:
+                                        datacenter_data[item['ip']]={"is_datacenter":False,"datacenter":''}
+                                        datacenter_data_pkg=datacenter_data[item['ip']]
+                                    pg.cur2_execute("insert into ip_datacenter_lookup (ip_address,json_data) values(%s,%s) ON CONFLICT DO NOTHING",[str(item['ip']),Json(datacenter_data_pkg)])
+                                    # conn.commit()
+                                    pg.conn_commit()
+                            else:
+                                skipped_api_requests_today=skipped_api_requests_today+1
+                                print("max api requests today, skipping until tomorrow.  total skipped: " + str(skipped_api_requests_today))
+                        if item['ip'] in datacenter_data:
+                            relayDetails[relay][item['ip']][item['port']]['is_datacenter']=datacenter_data[item['ip']]['is_datacenter']
+                            relayDetails[relay][item['ip']][item['port']]['datacenter']=datacenter_data[item['ip']]['datacenter']
                         else:
-                            offlineCount = offlineCount + 1
-                        visitedIps.append(item)
-                    if item['type']==6:
-                        res = isOnlineIpRelayCardanoCli(item['ip'], item['port'])
-                        
-                        if res['status']:
-                            onlineCount = onlineCount + 1
-                            protocolVersion=res['remoteProtocolVersion']
-                            print(res)
-                            #exit()
-                        else:
-                            offlineCount = offlineCount + 1
-                        visitedIps.append(item)
-                    if item['port'] not in relayDetails[relay][item['ip']]:
-                        relayDetails[relay][item['ip']][item['port']]={"type":item['type'],"online":res['status'],"protocolVersion":protocolVersion}
-                    if item['ip'] not in datacenter_data:
-                        if api_requests_today<MAX_IP_API_REQUESTS_PER_DAY:
-                            api_requests_today=api_requests_today+1
-                            print("api requests today: "+str(api_requests_today))
-                            result = getIpHostProvider([item['ip']])
-                            print(result)
-                            if "failure" not in result:
-                                if  item['ip'] in result and 'datacenter' not in result[item['ip']]:
-                                    print(result[item['ip']])
-                                if item['ip'] in result and 'datacenter' in result[item['ip']]:
-                                    #this means its in a datacenter
-                                    datacenter_data[item['ip']]={"is_datacenter":result[item['ip']]['is_datacenter'],"datacenter":result[item['ip']]['datacenter']}
-                                    datacenter_data_pkg=result[item['ip']]
-                                else:
-                                    datacenter_data[item['ip']]={"is_datacenter":False,"datacenter":''}
-                                    datacenter_data_pkg=datacenter_data[item['ip']]
-                                pg.cur2_execute("insert into ip_datacenter_lookup (ip_address,json_data) values(%s,%s) ON CONFLICT DO NOTHING",[str(item['ip']),Json(datacenter_data_pkg)])
-                                # conn.commit()
-                                pg.conn_commit()
-                        else:
-                            skipped_api_requests_today=skipped_api_requests_today+1
-                            print("max api requests today, skipping until tomorrow.  total skipped: " + str(skipped_api_requests_today))
-                    if item['ip'] in datacenter_data:
-                        relayDetails[relay][item['ip']][item['port']]['is_datacenter']=datacenter_data[item['ip']]['is_datacenter']
-                        relayDetails[relay][item['ip']][item['port']]['datacenter']=datacenter_data[item['ip']]['datacenter']
-                    else:
-                        #we will try to get it the next go around
-                        relayDetails[relay][item['ip']][item['port']]['is_datacenter']=False
-                        relayDetails[relay][item['ip']][item['port']]['datacenter']=''
-    
-                    
+                            #we will try to get it the next go around
+                            relayDetails[relay][item['ip']][item['port']]['is_datacenter']=False
+                            relayDetails[relay][item['ip']][item['port']]['datacenter']=''
         
-        if (row['online_relays']!=onlineCount or row['offline_relays']!=offlineCount):
-            poolRelayUpdate = {
-                "o": onlineCount,
-                "oo": offlineCount
-            }
-            fb.updateFb(baseNetwork+"/stake_pools/" + row['pool_id'],poolRelayUpdate)
-            
-
-        if offlineCount>0:
-            pg.cur2_execute("update pools set relay_details=%s,online_relays=%s,offline_relays=%s,relays_last_check=extract(epoch from now())::int, relays_failure_count=pools.relays_failure_count+1 where pool_id=%s",[Json(relayDetails),onlineCount,offlineCount,row['pool_id']])
-        else:
-            pg.cur2_execute("update pools set relay_details=%s,online_relays=%s,offline_relays=%s,relays_last_check=extract(epoch from now())::int,relays_failure_count=0 where pool_id=%s",[Json(relayDetails),onlineCount,offlineCount,row['pool_id']])
-        pg.conn_commit()
-        # conn.commit()
-        row=pg.cur1_fetchone()
-    
-    totalOnlineCount = 0
-    totalOfflineCount = 0
-    totalIpv4Count=0
-    totalIpv6Count=0
-    remoteProtocolVersion={}
-    dataCenters={}
-    iptypes={}
-    pg.cur1_execute("select pool_id, online_relays, offline_relays,relay_details, live_stake from pools where retired=false and genesis=false")
-    row=pg.cur1_fetchone()
-    print("summing and saving pool relays data")
-    while row:
-        if row['online_relays'] is not None:
-            totalOnlineCount = totalOnlineCount + row['online_relays']
-        if row['offline_relays'] is not None:
-            totalOfflineCount = totalOfflineCount + row['offline_relays']
-        total_relays=int(row['online_relays']) if row['online_relays'] is not None else 0+int(row['offline_relays']) if row['offline_relays'] is not None else 0
-        if row['relay_details'] is not None:
-            
-            for relay_name in row['relay_details']:
-                for relay_ip in  row['relay_details'][relay_name]:
-                    for relay_port in row['relay_details'][relay_name][relay_ip]:
-                        if 'online' in row['relay_details'][relay_name][relay_ip][relay_port] and row['relay_details'][relay_name][relay_ip][relay_port]['online'] and 'protocolVersion' in row['relay_details'][relay_name][relay_ip][relay_port]:
-                            if row['relay_details'][relay_name][relay_ip][relay_port]['protocolVersion'] not in remoteProtocolVersion:
-                                remoteProtocolVersion[row['relay_details'][relay_name][relay_ip][relay_port]['protocolVersion']]={}
-                                remoteProtocolVersion[row['relay_details'][relay_name][relay_ip][relay_port]['protocolVersion']]['qty']=1
-                                remoteProtocolVersion[row['relay_details'][relay_name][relay_ip][relay_port]['protocolVersion']]['stake']=((int(row['live_stake']) if row['live_stake'] is not None else 0)/total_relays) if total_relays>0 else int(row['live_stake']) if row['live_stake'] is not None else 0
-                            else:
-                                remoteProtocolVersion[row['relay_details'][relay_name][relay_ip][relay_port]['protocolVersion']]['qty']+=1
-                                remoteProtocolVersion[row['relay_details'][relay_name][relay_ip][relay_port]['protocolVersion']]['stake']+=((int(row['live_stake']) if row['live_stake'] is not None else 0)/total_relays) if total_relays>0 else int(row['live_stake']) if row['live_stake'] is not None else 0
                         
-                        if 'is_datacenter' in row['relay_details'][relay_name][relay_ip][relay_port]:
-                            if row['relay_details'][relay_name][relay_ip][relay_port]['is_datacenter'] and 'datacenter' in row['relay_details'][relay_name][relay_ip][relay_port]:
-                                # print(row['pool_id'])
-                                # print(relay_ip)
-                                # print(row['relay_details'][relay_name][relay_ip][relay_port]['datacenter'])
-                                #for some records will will have a datacenter detail inside datacenter apparently.
-                                dc=None
-                                if isinstance(row['relay_details'][relay_name][relay_ip][relay_port]['datacenter'],str):
-                                    dc=row['relay_details'][relay_name][relay_ip][relay_port]['datacenter']
-                                elif 'datacenter' in row['relay_details'][relay_name][relay_ip][relay_port]['datacenter']:
-                                    dc=row['relay_details'][relay_name][relay_ip][relay_port]['datacenter']['datacenter']
-                                else:
-                                    print("don't know how to deal with this datacenter record")
-                                    row['relay_details'][relay_name][relay_ip][relay_port]['datacenter']
-                                if dc is not None:
-                                    if dc not in dataCenters:
-                                        dataCenters[dc]={}
-                                        dataCenters[dc]['qty']=1
-                                        dataCenters[dc]['stake']=((int(row['live_stake']) if row['live_stake'] is not None else 0)/total_relays) if total_relays>0 else int(row['live_stake']) if row['live_stake'] is not None else 0
-                                    else:
-                                        dataCenters[dc]['qty']+=1
-                                        dataCenters[dc]['stake']+=((int(row['live_stake']) if row['live_stake'] is not None else 0)/total_relays) if total_relays>0 else int(row['live_stake']) if row['live_stake'] is not None else 0
-                            else:
-                                if not row['relay_details'][relay_name][relay_ip][relay_port]['is_datacenter']:
-                                    if 'Not in Datacenter' not in dataCenters:
-                                        dataCenters['Not in Datacenter']={}
-                                        dataCenters['Not in Datacenter']['qty']=1
-                                        dataCenters['Not in Datacenter']['stake']=((int(row['live_stake']) if row['live_stake'] is not None else 0)/total_relays) if total_relays>0 else int(row['live_stake']) if row['live_stake'] is not None else 0
-                                    else:
-                                        dataCenters['Not in Datacenter']['qty']+=1
-                                        dataCenters['Not in Datacenter']['stake']+=((int(row['live_stake']) if row['live_stake'] is not None else 0)/total_relays) if total_relays>0 else int(row['live_stake']) if row['live_stake'] is not None else 0
+            
+            if (row['online_relays']!=onlineCount or row['offline_relays']!=offlineCount):
+                poolRelayUpdate = {
+                    "o": onlineCount,
+                    "oo": offlineCount
+                }
+                fb.updateFb(baseNetwork+"/stake_pools/" + row['pool_id'],poolRelayUpdate)
+                
 
-                        if 'type' in row['relay_details'][relay_name][relay_ip][relay_port]:
-                            if row['relay_details'][relay_name][relay_ip][relay_port]['type'] not in iptypes:
-                                iptypes[row['relay_details'][relay_name][relay_ip][relay_port]['type']]=1
-                            else:
-                                iptypes[row['relay_details'][relay_name][relay_ip][relay_port]['type']]=iptypes[row['relay_details'][relay_name][relay_ip][relay_port]['type']]+1
+            if offlineCount>0:
+                pg.cur2_execute("update pools set relay_details=%s,online_relays=%s,offline_relays=%s,relays_last_check=extract(epoch from now())::int, relays_failure_count=pools.relays_failure_count+1 where pool_id=%s",[Json(relayDetails),onlineCount,offlineCount,row['pool_id']])
+            else:
+                pg.cur2_execute("update pools set relay_details=%s,online_relays=%s,offline_relays=%s,relays_last_check=extract(epoch from now())::int,relays_failure_count=0 where pool_id=%s",[Json(relayDetails),onlineCount,offlineCount,row['pool_id']])
+            pg.conn_commit()
+            # conn.commit()
+            row=pg.cur1_fetchone()
+        
+        totalOnlineCount = 0
+        totalOfflineCount = 0
+        totalIpv4Count=0
+        totalIpv6Count=0
+        remoteProtocolVersion={}
+        dataCenters={}
+        iptypes={}
+        pg.cur1_execute("select pool_id, online_relays, offline_relays,relay_details, live_stake from pools where retired=false and genesis=false")
         row=pg.cur1_fetchone()
-    sortedremoteProtocolVersion = dict(sorted(remoteProtocolVersion.items(), key=lambda x: x[1]['stake'],reverse=True))
-    print("saving sorted data")
-    ecosystemUpdate = {
-        "onlineRelays": totalOnlineCount,
-        "offlineRelays": totalOfflineCount,
-        "protocolsRelays": json.dumps(sortedremoteProtocolVersion, separators=(',', ':')),
-        "iptypesRelays": json.dumps(iptypes, separators=(',', ':')),
-        "datacentersRelays":json.dumps(dataCenters, separators=(',', ':'))
-    }
-    fb.updateFb(baseNetwork+"/ecosystem",ecosystemUpdate)
+        print("summing and saving pool relays data")
+        while row:
+            if row['online_relays'] is not None:
+                totalOnlineCount = totalOnlineCount + row['online_relays']
+            if row['offline_relays'] is not None:
+                totalOfflineCount = totalOfflineCount + row['offline_relays']
+            total_relays=int(row['online_relays']) if row['online_relays'] is not None else 0+int(row['offline_relays']) if row['offline_relays'] is not None else 0
+            if row['relay_details'] is not None:
+                
+                for relay_name in row['relay_details']:
+                    for relay_ip in  row['relay_details'][relay_name]:
+                        for relay_port in row['relay_details'][relay_name][relay_ip]:
+                            if 'online' in row['relay_details'][relay_name][relay_ip][relay_port] and row['relay_details'][relay_name][relay_ip][relay_port]['online'] and 'protocolVersion' in row['relay_details'][relay_name][relay_ip][relay_port]:
+                                if row['relay_details'][relay_name][relay_ip][relay_port]['protocolVersion'] not in remoteProtocolVersion:
+                                    remoteProtocolVersion[row['relay_details'][relay_name][relay_ip][relay_port]['protocolVersion']]={}
+                                    remoteProtocolVersion[row['relay_details'][relay_name][relay_ip][relay_port]['protocolVersion']]['qty']=1
+                                    remoteProtocolVersion[row['relay_details'][relay_name][relay_ip][relay_port]['protocolVersion']]['stake']=((int(row['live_stake']) if row['live_stake'] is not None else 0)/total_relays) if total_relays>0 else int(row['live_stake']) if row['live_stake'] is not None else 0
+                                else:
+                                    remoteProtocolVersion[row['relay_details'][relay_name][relay_ip][relay_port]['protocolVersion']]['qty']+=1
+                                    remoteProtocolVersion[row['relay_details'][relay_name][relay_ip][relay_port]['protocolVersion']]['stake']+=((int(row['live_stake']) if row['live_stake'] is not None else 0)/total_relays) if total_relays>0 else int(row['live_stake']) if row['live_stake'] is not None else 0
+                            
+                            if 'is_datacenter' in row['relay_details'][relay_name][relay_ip][relay_port]:
+                                if row['relay_details'][relay_name][relay_ip][relay_port]['is_datacenter'] and 'datacenter' in row['relay_details'][relay_name][relay_ip][relay_port]:
+                                    # print(row['pool_id'])
+                                    # print(relay_ip)
+                                    # print(row['relay_details'][relay_name][relay_ip][relay_port]['datacenter'])
+                                    #for some records will will have a datacenter detail inside datacenter apparently.
+                                    dc=None
+                                    if isinstance(row['relay_details'][relay_name][relay_ip][relay_port]['datacenter'],str):
+                                        dc=row['relay_details'][relay_name][relay_ip][relay_port]['datacenter']
+                                    elif 'datacenter' in row['relay_details'][relay_name][relay_ip][relay_port]['datacenter']:
+                                        dc=row['relay_details'][relay_name][relay_ip][relay_port]['datacenter']['datacenter']
+                                    else:
+                                        print("don't know how to deal with this datacenter record")
+                                        row['relay_details'][relay_name][relay_ip][relay_port]['datacenter']
+                                    if dc is not None:
+                                        if dc not in dataCenters:
+                                            dataCenters[dc]={}
+                                            dataCenters[dc]['qty']=1
+                                            dataCenters[dc]['stake']=((int(row['live_stake']) if row['live_stake'] is not None else 0)/total_relays) if total_relays>0 else int(row['live_stake']) if row['live_stake'] is not None else 0
+                                        else:
+                                            dataCenters[dc]['qty']+=1
+                                            dataCenters[dc]['stake']+=((int(row['live_stake']) if row['live_stake'] is not None else 0)/total_relays) if total_relays>0 else int(row['live_stake']) if row['live_stake'] is not None else 0
+                                else:
+                                    if not row['relay_details'][relay_name][relay_ip][relay_port]['is_datacenter']:
+                                        if 'Not in Datacenter' not in dataCenters:
+                                            dataCenters['Not in Datacenter']={}
+                                            dataCenters['Not in Datacenter']['qty']=1
+                                            dataCenters['Not in Datacenter']['stake']=((int(row['live_stake']) if row['live_stake'] is not None else 0)/total_relays) if total_relays>0 else int(row['live_stake']) if row['live_stake'] is not None else 0
+                                        else:
+                                            dataCenters['Not in Datacenter']['qty']+=1
+                                            dataCenters['Not in Datacenter']['stake']+=((int(row['live_stake']) if row['live_stake'] is not None else 0)/total_relays) if total_relays>0 else int(row['live_stake']) if row['live_stake'] is not None else 0
 
-    pg.cur1_execute("select slot,hash, epoch from blocks order by block desc limit 1")
-    row=pg.cur1_fetchone()
-    pg.conn_commit()
-    if row and row is not None:
-        epoch=row['epoch']
-        writetime=str(int(float(time.time()))) #stats_history_write_point
-        pg.cur1_execute("""insert into stats_history (timestamp, epoch, online_relays, offline_relays,protocol_relays, ip_types_relays, datacenter_relays)
-        values(%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
-        [writetime,epoch,totalOnlineCount,totalOfflineCount,Json(remoteProtocolVersion),Json(iptypes),Json(dataCenters)])
+                            if 'type' in row['relay_details'][relay_name][relay_ip][relay_port]:
+                                if row['relay_details'][relay_name][relay_ip][relay_port]['type'] not in iptypes:
+                                    iptypes[row['relay_details'][relay_name][relay_ip][relay_port]['type']]=1
+                                else:
+                                    iptypes[row['relay_details'][relay_name][relay_ip][relay_port]['type']]=iptypes[row['relay_details'][relay_name][relay_ip][relay_port]['type']]+1
+            row=pg.cur1_fetchone()
+        sortedremoteProtocolVersion = dict(sorted(remoteProtocolVersion.items(), key=lambda x: x[1]['stake'],reverse=True))
+        print("saving sorted data")
+        ecosystemUpdate = {
+            "onlineRelays": totalOnlineCount,
+            "offlineRelays": totalOfflineCount,
+            "protocolsRelays": json.dumps(sortedremoteProtocolVersion, separators=(',', ':')),
+            "iptypesRelays": json.dumps(iptypes, separators=(',', ':')),
+            "datacentersRelays":json.dumps(dataCenters, separators=(',', ':'))
+        }
+        fb.updateFb(baseNetwork+"/ecosystem",ecosystemUpdate)
+
+        pg.cur1_execute("select slot,hash, epoch from blocks order by block desc limit 1")
+        row=pg.cur1_fetchone()
         pg.conn_commit()
-    
-    
+        if row and row is not None:
+            epoch=row['epoch']
+            writetime=str(int(float(time.time()))) #stats_history_write_point
+            pg.cur1_execute("""insert into stats_history (timestamp, epoch, online_relays, offline_relays,protocol_relays, ip_types_relays, datacenter_relays)
+            values(%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+            [writetime,epoch,totalOnlineCount,totalOfflineCount,Json(remoteProtocolVersion),Json(iptypes),Json(dataCenters)])
+            pg.conn_commit()
+        
+        
 
-    return True
+        return True
+    except Exception as e:
+        print("failure in pool relays")
+        print(f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}")
+        return True
   
 
 def get_ip_type(ip):
@@ -489,7 +494,7 @@ async def battle_trends():
 async def main():
     pool_ranking=POOL_RANKING_PERIOD#POOL_RANKING_PERIOD #every 1 hour
     metadata=METADATA_PERIOD#METADATA_PERIOD#METADATA_PERIOD #every 10 minutes
-    poolrelays=0#POOL_RELAYS#POOL_RELAYS#POOL_RELAYS#POOL_RELAYS#POOL_RELAYS
+    poolrelays=POOL_RELAYS#POOL_RELAYS#POOL_RELAYS#POOL_RELAYS#POOL_RELAYS
     writetickers=WRITE_TICKERS
     battletrends=BATTLE_TRENDS#BATTLE_TRENDS
     pledge_check=PLEDGE_CHECK

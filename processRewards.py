@@ -78,40 +78,50 @@ totalpoolstake={}
 pooldelegators={}
 stake={}
 totalstake=0
-pg.cur1_execute("select * from stake_history where epoch=%s",[block_production_epoch])
-row=pg.cur1_fetchone()
-while row:
+# Use the server_side_execute method
+cursor_name = 'stake_history_cursor'
+cursor = pg.server_side_execute(
+    cursor_name,
+    "SELECT * FROM stake_history WHERE epoch = %s",
+    [block_production_epoch],
+    itersize=10000  # Adjust the batch size as needed
+)
+
+# Process rows efficiently
+for row in cursor:
     if row['delegated_to_pool'] not in pooldelegators:
-        pooldelegators[row['delegated_to_pool']]={}
+        pooldelegators[row['delegated_to_pool']] = {}
     if row['stake_key'] not in pooldelegators[row['delegated_to_pool']]:
-        pooldelegators[row['delegated_to_pool']][row['stake_key']]={"u":0,"r":0}
-    stake[row['stake_key']]=row['amount']
+        pooldelegators[row['delegated_to_pool']][row['stake_key']] = {"u": 0, "r": 0}
+    stake[row['stake_key']] = row['amount']
     if row['delegated_to_pool'] is not None:
         if row['delegated_to_pool'] not in totalpoolstake:
-            totalpoolstake[row['delegated_to_pool']]=0
-        totalpoolstake[row['delegated_to_pool']]=totalpoolstake[row['delegated_to_pool']]+row['amount']
-    totalstake=totalstake+row['amount']
-    rewardaccounts[row['stake_key']]={
-        "epoch":row['epoch'],
-        "stake_key":row['stake_key'],
-        "amount":row['amount'],
-        "delegated_to_pool":row['delegated_to_pool'],
-        "delegated_to_ticker":row['delegated_to_ticker'],
-        "forecast":row['forecast'],
-        "operator_rewards":0,
-        "stake_rewards":0,
-        "rewards_sent_to":row['rewards_sent_to'],
-        "reward_address_details":{}}
-    row=pg.cur1_fetchone()
+            totalpoolstake[row['delegated_to_pool']] = 0
+        totalpoolstake[row['delegated_to_pool']] += row['amount']
+    totalstake += row['amount']
+    rewardaccounts[row['stake_key']] = {
+        "epoch": row['epoch'],
+        "stake_key": row['stake_key'],
+        "amount": row['amount'],
+        "delegated_to_pool": row['delegated_to_pool'],
+        "delegated_to_ticker": row['delegated_to_ticker'],
+        "forecast": row['forecast'],
+        "operator_rewards": 0,
+        "stake_rewards": 0,
+        "rewards_sent_to": row['rewards_sent_to'],
+        "reward_address_details": {}
+    }
+
+# Close the cursor after processing
+cursor.close()
 
 
 
 ledgerpoolparams={}
-pg.cur1_execute("select * from pool_epoch_params where epoch=%s",[block_production_epoch])
-row=pg.cur1_fetchone()
-while row:
-    ledgerpoolparams[row['pool_id']]=row
-    row=pg.cur1_fetchone()
+pg.cur1_execute("SELECT * FROM pool_epoch_params WHERE epoch=%s", [block_production_epoch])
+rows = pg.cur1_fetchall()
+for row in rows:
+    ledgerpoolparams[row['pool_id']] = row
 
 
 # calculating rewards
@@ -151,37 +161,59 @@ for processpool in ledgerpoolparams:
     if focusOnPool is not None and processpool not in focusOnPool:
         continue
     print("pool::::::::::::: " + processpool+" ("+str(count)+"/"+str(totalcount)+")")
-    #print("pool delegator count: " + str(len(pooldelegators[processpool])))
+    if focusOnPool is not None:
+        print("pool delegator count: " + str(len(pooldelegators[processpool])))
+        print("owners:")
+        print(ledgerpoolparams[processpool]['owners'])
     if ledgerpoolparams[processpool]['owners'] is not None:
+
         for owneraddr in ledgerpoolparams[processpool]['owners']:
+            if focusOnPool is not None:
+                print("owneraddr: "+ owneraddr)
+
             if owneraddr in stake:
                 sumpledge=sumpledge+stake[owneraddr]
+                if focusOnPool is not None:
+                    print("sumpledge: "+ str(sumpledge))
+            else:    
+                if focusOnPool is not None:
+                    print("owneraddr not in stake: "+ owneraddr)
         if int(sumpledge) < int(ledgerpoolparams[processpool]['pledge']):
+            if focusOnPool is not None:
+                print("pledge not met")
             pledgemultiplier=0
+        else:
+            if focusOnPool is not None:
+                print("pledge met") 
+
     else:
         pledgemultiplier=0
-    #print("pledgemultiplier",pledgemultiplier)
-
-
-    #print("reward_pot: "+ str(reward_pot))
-    #term1 = reward_pot/(1 + a0) # we need this value from last epoch...
-    #print("analysis_epoch_decentralization_param: "+ str(analysis_epoch_decentralization_param))
-    #print("a0: " + str(a0))
-    #print("termz0: "+ str(termz0))
+    if focusOnPool is not None:
+        print("pledgemultiplier",pledgemultiplier)
+        print("reward_pot: "+ str(reward_pot))
+    term1 = reward_pot/(1 + a0) # we need this value from last epoch...
+    if focusOnPool is not None:
+        print("analysis_epoch_decentralization_param: "+ str(analysis_epoch_decentralization_param))
+        print("a0: " + str(a0))
+        print("termz0: "+ str(termz0))
     sigmaprime= min(totalpoolstake[processpool]/total_supply,termz0) #J23
-    #print("sigmaprime: " + str(sigmaprime))
+    if focusOnPool is not None:
+        print("sigmaprime: " + str(sigmaprime))
     sprime = min(ledgerpoolparams[processpool]['pledge']/total_supply,termz0) #J24
-    #print("sprime: " + str(sprime))
+    if focusOnPool is not None:
+        print("sprime: " + str(sprime))
 
     optimalrewards = pledgemultiplier*((((sigmaprime-((1-sigmaprime/termz0)*sprime))/termz0*sprime*a0)+sigmaprime) * term1)
-    #print("optimal rewards")
-    #print(optimalrewards)
+    if focusOnPool is not None:
+        print("optimal rewards")
+        print(optimalrewards)
     
     if analysis_epoch_decentralization_param>0:
         expected_blocks=(totalpoolstake[processpool]/totalstake) * epoch_all_blocks
     else:
         expected_blocks=((totalpoolstake[processpool]/totalstake)  *  total_epoch_blocks)
-    #print("expected blocks: "+ str(expected_blocks))
+    if focusOnPool is not None:
+        print("expected blocks: "+ str(expected_blocks))
     
     if analysis_epoch_decentralization_param>=0.8:
         if processpool in blocksbypool and blocksbypool[processpool]>0:
@@ -193,23 +225,27 @@ for processpool in ledgerpoolparams:
             performance=(blocksbypool[processpool]/expected_blocks)
         else:
             performance=0
-    #print("performance: "+str(performance))
+    if focusOnPool is not None:
+        print("performance: "+str(performance))
     performance_adjusted_rewards=int(max(0,performance*optimalrewards))
 
-
-    #print("performance_adjusted_rewards: "+ str(performance_adjusted_rewards))
+    if focusOnPool is not None:
+        print("performance_adjusted_rewards: "+ str(performance_adjusted_rewards))
     if performance_adjusted_rewards>ledgerpoolparams[processpool]['cost']:
         pool_fees=int(ledgerpoolparams[processpool]['cost']+((performance_adjusted_rewards-ledgerpoolparams[processpool]['cost'])*ledgerpoolparams[processpool]['margin']))
     else:
         pool_fees=int(performance_adjusted_rewards)
-    #print("pool_fees: "+str(pool_fees))
+    if focusOnPool is not None:
+        print("pool_fees: "+str(pool_fees))
 
     #print("updating pool: " + processpool)
     if totalpoolstake[processpool]>0:
         ros = math.pow(((performance_adjusted_rewards-pool_fees) / totalpoolstake[processpool]) + 1, (365 / 5)) - 1
     else:
         ros = 0
-
+    if focusOnPool is not None:
+        print("ros: "+str(ros))
+    
 
     poolupdate[processpool]={"epochRos":ros,"epochTax":pool_fees,"epochRewards":(performance_adjusted_rewards-pool_fees)}
     poolstakebyhashid[processpool]={"f":False,"epochRos":ros,"epochTax":pool_fees,"epochRewards":(performance_adjusted_rewards-pool_fees)}

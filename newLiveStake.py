@@ -51,8 +51,7 @@ while True:
         
         # delete all the files on the server because the old ones we will never process as well.
         for file in filelisting:
-            aws.delete_s3_object(file)        
-
+            aws.delete_s3_object(file)
     # open the pickle file and read it back in
     with open('/tmp/liveStakeData.pkl','rb') as f:
         liveStakeData=pickle.load(f)
